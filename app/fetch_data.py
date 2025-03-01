@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import re
 import time
+import json
 from utils import safe_request, generate_embedding
 
 
@@ -214,8 +215,15 @@ def find_all_competitor_mentions(company_content: str, competitor_name: str) -> 
             context = context.replace('\n', ' ').replace('\r', ' ')
             context = re.sub(r'\s+', ' ', context).strip()
 
-            # Add to mentions if not a duplicate
-            if context not in [m.get('context') for m in mentions]:
+            # Check if this is a duplicate context (avoid showing the same mention multiple times)
+            is_duplicate = False
+            for existing_mention in mentions:
+                if existing_mention.get('context') == context:
+                    is_duplicate = True
+                    break
+
+            # Only add if not a duplicate
+            if not is_duplicate:
                 mentions.append({
                     'variant': variant,
                     'context': f"...{context}..."

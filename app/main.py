@@ -5,6 +5,7 @@ import json
 from utils import parse_pdf, scrape_company_data
 from llm import generate_insights
 from fetch_data import get_competitor_mentions
+from semantic_search import find_product_category_matches
 
 # Load environment variables
 load_dotenv()
@@ -40,7 +41,18 @@ def format_competitor_mentions(mentions: dict) -> str:
         if competitor_mentions and len(competitor_mentions) > 0:
             first_mention = competitor_mentions[0]
             if "Found" in first_mention:
-                mention_summary = f"**{first_mention}**"
+                # Ensure proper spacing in the URL
+                if "website" in first_mention and " " not in first_mention[-10:]:
+                    # Fix the spacing between URL and "website"
+                    url_end = first_mention.find("website")
+                    if url_end > 0:
+                        fixed_mention = first_mention[:url_end] + \
+                            " " + first_mention[url_end:]
+                        mention_summary = f"**{fixed_mention}**"
+                    else:
+                        mention_summary = f"**{first_mention}**"
+                else:
+                    mention_summary = f"**{first_mention}**"
             elif "No mentions" in first_mention:
                 mention_summary = f"**{first_mention}**"
 
@@ -69,11 +81,11 @@ def format_competitor_mentions(mentions: dict) -> str:
             formatted_text += "\n**Mention Details:**\n"
             for i, mention in enumerate(competitor_mentions):
                 if i > 0:  # Skip the first item which is the summary
+                    # Format all mention contexts consistently with italic formatting
                     if mention.startswith("Context:"):
-                        # Format context with indentation and italics
                         formatted_text += f"- *{mention}*\n"
                     else:
-                        formatted_text += f"- {mention}\n"
+                        formatted_text += f"- *{mention}*\n"
 
         formatted_text += "\n---\n"
 
@@ -130,6 +142,34 @@ def format_article_links(article_links_data):
     return str(article_links_data)
 
 
+def display_semantic_matches(semantic_results):
+    """Display semantic search matches for product category."""
+    if not semantic_results:
+        return
+
+    st.write("### 🔍 Semantic Matches for Product Category")
+
+    # Display high relevance matches
+    if semantic_results.get("high_relevance"):
+        st.write("#### High Relevance Matches")
+        for match in semantic_results["high_relevance"]:
+            st.markdown(
+                f"**Section:** {match['section'].replace('_', ' ').title()}")
+            st.markdown(f"**Relevance Score:** {match['score']:.2f}")
+            st.markdown(f"**Content:**\n{match['snippet']}")
+            st.markdown("---")
+
+    # Display medium relevance matches
+    if semantic_results.get("medium_relevance"):
+        st.write("#### Medium Relevance Matches")
+        for match in semantic_results["medium_relevance"]:
+            st.markdown(
+                f"**Section:** {match['section'].replace('_', ' ').title()}")
+            st.markdown(f"**Relevance Score:** {match['score']:.2f}")
+            st.markdown(f"**Content:**\n{match['snippet']}")
+            st.markdown("---")
+
+
 def display_debug_info(data):
     """Display debug information in a collapsible section."""
     with st.expander("Debug Information (Click to expand)"):
@@ -150,26 +190,31 @@ def display_debug_info(data):
         if isinstance(data, dict) and "raw_response" in data:
             st.text_area("Raw LLM Response", data["raw_response"], height=200)
 
+        st.write("### Semantic Search Results")
+        if isinstance(data, dict) and "semantic_search_results" in data:
+            st.json(data["semantic_search_results"])
+
 
 def main():
     st.title("🤖 Sales Assistant Agent")
 
     # Input section
     st.sidebar.header("Input Information")
-    product_name = st.sidebar.text_input("Product Name", "Datadog")
+    product_name = st.sidebar.text_input("Product Name", "HubSpot")
     company_url = st.sidebar.text_input(
-        "Company URL", "https://quickbooks.intuit.com/")
+        "Company URL", "https://www.pagerduty.com")
     product_category = st.sidebar.text_input(
-        "Product Category", "Observability & Monitoring")
+        "Product Category", "CRM Software")
     competitors = st.sidebar.text_area(
-        "Competitors (URLs, comma-separated)", "https://www.newrelic.com, https://www.splunk.com")
+        "Competitors (URLs, comma-separated)", "https://www.salesforce.com/ca/")
     value_proposition = st.sidebar.text_area("Value Proposition",
-                                             "Datadog provides QuickBooks with full-stack observability to proactively detect performance bottlenecks, optimize cloud infrastructure, and enhance the reliability of financial services.")
+                                             "HubSpot CRM empowers PagerDuty to seamlessly integrate incident management with customer relationship data, enhancing response times and customer satisfaction. Our platform automates communication workflows between support and sales teams, providing a unified view of customer interactions. This integration allows PagerDuty to scale operations efficiently, turning incident management into opportunities for stronger customer relationships and business growth.")
     target_customer = st.sidebar.text_area(
-        "Target Customer", "Alex Balazs")
+        "Target Customer", "Howard Wilson, Chief Financial Officer")
 
     # Debug mode checkbox
     debug_mode = st.sidebar.checkbox("Enable Debug Mode")
+    show_semantic_matches = st.sidebar.checkbox("Show Semantic Matches")
 
     uploaded_file = st.sidebar.file_uploader(
         "Upload Product Overview Sheet", type="pdf")
@@ -220,9 +265,12 @@ def main():
 
                 # Display debug information if enabled
                 if debug_mode and isinstance(insights, dict):
-                    insights_with_data = insights.copy()
-                    insights_with_data["company_data"] = company_data
-                    display_debug_info(insights_with_data)
+                    display_debug_info(insights)
+
+                # Display semantic matches if enabled
+                if show_semantic_matches and isinstance(insights, dict) and "semantic_search_results" in insights:
+                    display_semantic_matches(
+                        insights["semantic_search_results"])
 
                 # Display sections IN THE EXACT ORDER specified in requirements
 
@@ -276,6 +324,3 @@ if __name__ == "__main__":
         st.error("Please set up your OpenAI API key in the .env file!")
     else:
         main()
-
-
-

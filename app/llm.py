@@ -1,6 +1,7 @@
 from openai import OpenAI
 from utils import load_api_key
 import json
+from semantic_search import find_product_category_matches
 
 client = OpenAI(api_key=load_api_key())
 
@@ -12,18 +13,54 @@ def generate_insights(data: dict) -> dict:
     company_content = data.get('company_data', {}).get('content', '')
     press_content = data.get('company_data', {}).get('press_content', '')
 
+    # Use embeddings to find matches for product category in company data
+    product_category = data.get('product_category', 'N/A')
+    category_matches = find_product_category_matches(
+        product_category, data.get('company_data', {}))
+
+    # Extract high and medium relevance matches
+    relevant_snippets = []
+
+    for match in category_matches.get("high_relevance", []):
+        relevant_snippets.append(
+            f"HIGH RELEVANCE [{match['section']}]: {match['snippet']}")
+
+    for match in category_matches.get("medium_relevance", []):
+        relevant_snippets.append(
+            f"MEDIUM RELEVANCE [{match['section']}]: {match['snippet']}")
+
+    category_context = "\n\n".join(relevant_snippets)
+
+    # Format competitor mentions
+    competitor_mentions = []
+    for competitor_url, competitor_data in data.get('competitor_info', {}).get('competitors', {}).items():
+        name = competitor_data.get('name', 'Unknown')
+        mentions = competitor_data.get('mentions', [])
+
+        if mentions and mentions[0].startswith("Found"):
+            competitor_mentions.append(
+                f"COMPETITOR: {name}\nMENTIONS: {'; '.join(mentions)}")
+
+    competitor_context = "\n\n".join(competitor_mentions)
+
     # Format prompt with clear sections matching the exact output requirements
     prompt = f"""
     You are a sales intelligence agent helping a sales representative prepare for a meeting with a potential client.
     
     ### SALES CONTEXT
-    - You're helping sell: {data.get('product_name', 'N/A')} (Product Category: {data.get('product_category', 'N/A')})
+    - You're helping sell: {data.get('product_name', 'N/A')} (Product Category: {product_category})
     - Target company: {company_url}
     - Target stakeholders: {data.get('target_customer', 'N/A')}
     - Value proposition: {data.get('value_proposition', 'N/A')}
     
+    ### PRODUCT CATEGORY RELEVANCE (BASED ON SEMANTIC SEARCH)
+    {category_context}
+    
+    ### COMPETITOR MENTIONS
+    {competitor_context}
+    
     ### TARGET COMPANY DATA
-    {company_content[:3000]}
+    {company_content[:2000]}
     
     ### PRESS/NEWS CONTENT
     {press_content[:1000]}
@@ -33,11 +70,12 @@ def generate_insights(data: dict) -> dict:
     
     1. COMPANY STRATEGY: 
        - Provide a summary of the company's activities in the industry relevant to {data.get('product_name', 'your product')}.
+       - Highlight the semantic matches found in their content that relate to {product_category}.
        - Extract and highlight any public statements, press releases, or articles where key executives have discussed relevant topics.
-       - Analyze job postings or other indicators that hint at the company's strategy or technology stack (e.g., skills required in job postings).
+       - Analyze job postings or other indicators that hint at the company's strategy or technology stack.
     
     2. LEADERSHIP INFORMATION: 
-       - Identify key leaders at the prospect company who would be involved in purchasing decisions for {data.get('product_category', 'this type of solution')}.
+       - Identify key leaders at the prospect company who would be involved in purchasing decisions for {product_category}.
        - Highlight their relevance to this potential purchase (e.g., those quoted in press releases over the last year).
        - Include specific titles, responsibilities, and decision-making authority if available.
     
@@ -45,6 +83,7 @@ def generate_insights(data: dict) -> dict:
        - For public companies, include insights from 10-Ks, annual reports, or other relevant documents available online.
        - Analyze how the company's current strategy and technology align with {data.get('product_name', 'our product')}.
        - Identify specific pain points or challenges that our solution could address.
+       - Reference the semantic matches identified above to support your points.
     
     4. ARTICLE LINKS: 
        - Provide links to full articles, press releases, or other sources mentioned in your analysis.
@@ -118,6 +157,9 @@ def generate_insights(data: dict) -> dict:
             # Add raw response for debugging
             insights["raw_response"] = raw_content
 
+            # Add semantic search results for reference
+            insights["semantic_search_results"] = category_matches
+
             return insights
 
         except json.JSONDecodeError:
@@ -156,6 +198,9 @@ def generate_insights(data: dict) -> dict:
 
             # Add raw response for debugging
             sections["raw_response"] = raw_content
+
+            # Add semantic search results for reference
+            sections["semantic_search_results"] = category_matches
 
             return sections
 
